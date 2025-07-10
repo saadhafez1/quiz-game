@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>لعبة التحدي</title>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      background: #f7f7f7;
+      text-align: center;
+      padding: 20px;
+    }
+    .quiz-container, .stats-container {
+      max-width: 500px;
+      margin: auto;
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      display: none;
+    }
+    .welcome-screen {
+      max-width: 500px;
+      margin: auto;
+      background: #e0f2fe;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #3b82f6;
+    }
+    .question {
+      font-size: 20px;
+      margin-bottom: 20px;
+    }
+    .answers button, .start-btn, #reset-btn, .show-stats-btn, .category-btn {
+      display: block;
+      width: 100%;
+      margin: 8px 0;
+      padding: 10px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      background: #3b82f6;
+      color: white;
+      cursor: pointer;
+    }
+    .answers button:hover, .start-btn:hover, #reset-btn:hover, .show-stats-btn:hover, .category-btn:hover {
+      background-color: #2563eb;
+    }
+    #result, #timer, #final-level {
+      margin-top: 20px;
+      font-weight: bold;
+    }
+    .icon {
+      width: 100px;
+      margin: 10px auto;
+    }
+    .input-group {
+      margin-top: 10px;
+    }
+    .input-group input {
+      padding: 10px;
+      width: 90%;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="welcome-screen" id="welcome">
+    <img class="icon" src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" alt="quiz icon">
+    <h1>مرحباً بك في تحدي المعلومات!</h1>
+    <p>اختر القسم الذي تريد اللعب فيه، ثم أدخل بياناتك للبدء:</p>
+    <div id="category-selection">
+      <button class="category-btn" onclick="selectCategory('ثقافة عامة')">ثقافة عامة</button>
+      <button class="category-btn" onclick="selectCategory('علوم')">علوم</button>
+      <button class="category-btn" onclick="selectCategory('رياضة')">رياضة</button>
+    </div>
+    <div class="input-group">
+      <input type="text" id="username" placeholder="الاسم الكامل">
+    </div>
+    <div class="input-group">
+      <input type="email" id="email" placeholder="البريد الإلكتروني (اختياري)">
+    </div>
+    <div class="input-group">
+      <input type="tel" id="phone" placeholder="رقم الهاتف (اختياري)">
+    </div>
+    <button class="start-btn" onclick="startGame()">ابدأ الآن</button>
+  </div>
+
+  <div class="quiz-container" id="quiz">
+    <h1>🌟 تحدي المعلومات 🌟</h1>
+    <div id="userDisplay"></div>
+    <div id="level">المستوى: 1</div>
+    <div id="score">النقاط: 0</div>
+    <div id="category">الفئة: ثقافة عامة</div>
+    <div class="question" id="question">تحميل السؤال...</div>
+    <div class="answers" id="answers"></div>
+    <div id="timer">الوقت: 15 ثانية</div>
+    <div id="result"></div>
+    <div id="final-level"></div>
+    <button class="show-stats-btn" onclick="showStats()">📊 عرض الإحصائيات</button>
+    <button id="reset-btn" onclick="resetGame()">🔁 ابدأ من جديد</button>
+  </div>
+
+  <div class="stats-container" id="stats">
+    <h2>📈 إحصائيات اللعب</h2>
+    <p id="stat-username"></p>
+    <p id="stat-email"></p>
+    <p id="stat-phone"></p>
+    <p id="stat-score"></p>
+    <p id="stat-level"></p>
+    <p id="stat-max"></p>
+    <button onclick="goBack()">🔙 عودة للعبة</button>
+  </div>
+
+  <script>
+    const questionSets = {
+      'ثقافة عامة': [
+        {
+          question: "ما هي عاصمة مصر؟",
+          answers: ["القاهرة", "الإسكندرية", "الأقصر", "أسوان"],
+          correct: 0
+        },
+        {
+          question: "كم عدد قارات العالم؟",
+          answers: ["5", "6", "7", "8"],
+          correct: 2
+        }
+      ],
+      'علوم': [
+        {
+          question: "ما هو الكوكب الأقرب إلى الشمس؟",
+          answers: ["الأرض", "الزهرة", "عطارد", "المريخ"],
+          correct: 2
+        },
+        {
+          question: "ما هو العنصر الكيميائي الذي رمزه H؟",
+          answers: ["الهيليوم", "الهيدروجين", "النيتروجين", "الحديد"],
+          correct: 1
+        }
+      ],
+      'رياضة': [
+        {
+          question: "كم عدد اللاعبين في فريق كرة القدم؟",
+          answers: ["9", "10", "11", "12"],
+          correct: 2
+        },
+        {
+          question: "أين أقيمت أولمبياد 2020؟",
+          answers: ["ريو دي جانيرو", "لندن", "باريس", "طوكيو"],
+          correct: 3
+        }
+      ]
+    };
+
+    let username = localStorage.getItem('username') || "لاعب";
+    let email = localStorage.getItem('email') || "غير محدد";
+    let phone = localStorage.getItem('phone') || "غير محدد";
+    let currentLevel = parseInt(localStorage.getItem('level')) || 1;
+    let score = parseInt(localStorage.getItem('score')) || 0;
+    let maxLevel = parseInt(localStorage.getItem('maxLevel')) || currentLevel;
+    let selectedCategory = localStorage.getItem('category') || 'ثقافة عامة';
+    let currentQuestions = questionSets[selectedCategory];
+    let currentQuestion = 0;
+
+    function selectCategory(cat) {
+      selectedCategory = cat;
+      localStorage.setItem('category', cat);
+    }
+
+    function startGame() {
+      const inputName = document.getElementById("username").value;
+      const inputEmail = document.getElementById("email").value;
+      const inputPhone = document.getElementById("phone").value;
+
+      if (inputName) {
+        username = inputName;
+        localStorage.setItem('username', username);
+      }
+      if (inputEmail) {
+        email = inputEmail;
+        localStorage.setItem('email', email);
+      }
+      if (inputPhone) {
+        phone = inputPhone;
+        localStorage.setItem('phone', phone);
+      }
+
+      document.getElementById("userDisplay").textContent = `👤 اللاعب: ${username}`;
+      document.getElementById("welcome").style.display = "none";
+      document.getElementById("quiz").style.display = "block";
+      currentQuestions = questionSets[selectedCategory];
+      document.getElementById("level").textContent = `المستوى: ${currentLevel}`;
+      document.getElementById("score").textContent = `النقاط: ${score}`;
+      document.getElementById("final-level").textContent = `أعلى مستوى وصلت له: ${maxLevel}`;
+      document.getElementById("category").textContent = `الفئة: ${selectedCategory}`;
+      showQuestion();
+    }
+
+    function showQuestion() {
+      if (currentQuestion >= currentQuestions.length) {
+        currentQuestion = 0;
+        currentLevel++;
+        maxLevel = Math.max(maxLevel, currentLevel);
+        localStorage.setItem('level', currentLevel);
+        localStorage.setItem('maxLevel', maxLevel);
+        alert("تم اجتياز هذا المستوى! سيتم الانتقال للمستوى التالي بنفس الأسئلة مؤقتاً.");
+      }
+      const q = currentQuestions[currentQuestion];
+      document.getElementById("question").textContent = q.question;
+      const answersHtml = q.answers.map((ans, index) => `<button onclick="checkAnswer(${index})">${ans}</button>`).join('');
+      document.getElementById("answers").innerHTML = answersHtml;
+    }
+
+    function checkAnswer(index) {
+      const correct = currentQuestions[currentQuestion].correct;
+      if (index === correct) {
+        score += 10;
+        localStorage.setItem('score', score);
+      }
+      currentQuestion++;
+      showQuestion();
+    }
+
+    function resetGame() {
+      score = 0;
+      currentLevel = 1;
+      maxLevel = 1;
+      localStorage.setItem('score', score);
+      localStorage.setItem('level', currentLevel);
+      localStorage.setItem('maxLevel', maxLevel);
+      document.getElementById("score").textContent = `النقاط: ${score}`;
+      document.getElementById("level").textContent = `المستوى: ${currentLevel}`;
+      document.getElementById("final-level").textContent = `أعلى مستوى وصلت له: ${maxLevel}`;
+      currentQuestion = 0;
+      showQuestion();
+    }
+
+    function showStats() {
+      document.getElementById("quiz").style.display = "none";
+      document.getElementById("stats").style.display = "block";
+      document.getElementById("stat-username").textContent = `👤 الاسم: ${username}`;
+      document.getElementById("stat-email").textContent = `📧 البريد: ${email}`;
+      document.getElementById("stat-phone").textContent = `📱 الهاتف: ${phone}`;
+      document.getElementById("stat-score").textContent = `🔢 النقاط: ${score}`;
+      document.getElementById("stat-level").textContent = `📊 المستوى الحالي: ${currentLevel}`;
+      document.getElementById("stat-max").textContent = `🏆 أعلى مستوى: ${maxLevel}`;
+    }
+
+    function goBack() {
+      document.getElementById("stats").style.display = "none";
+      document.getElementById("quiz").style.display = "block";
+    }
+  </script>
+</body>
+</html>
