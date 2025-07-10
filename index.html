@@ -1,0 +1,407 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+    getAuth, 
+    onAuthStateChanged, 
+    createUserWithEmailAndPassword, 
+    signInWithEmailAndPassword, 
+    signOut,
+    signInAnonymously,
+    signInWithCustomToken
+} from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+
+// --- Helper Components ---
+const Icon = ({ name, className }) => {
+    const icons = {
+        image: <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>,
+        text: <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>,
+        video: <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>,
+        billing: <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>,
+        logout: <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>,
+        spinner: <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>,
+        check: <svg className="w-5 h-5 text-green-400 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>,
+        reset: <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 2v6h6"/><path d="M21 12A9 9 0 0 0 6 5.3L3 8"/><path d="M21 22v-6h-6"/><path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"/></svg>,
+    };
+    return <span className={className}>{icons[name]}</span>;
+};
+
+const Loader = ({ text }) => (
+    <div className="flex flex-col items-center justify-center p-10 bg-gray-800/50 rounded-lg">
+        <div className="w-16 h-16 border-4 border-blue-400 border-t-transparent border-solid rounded-full animate-spin"></div>
+        <p className="mt-4 text-lg text-white">{text}</p>
+    </div>
+);
+
+// --- Firebase Initialization ---
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// --- Main App Component ---
+export default function App() {
+    const [user, setUser] = useState(null);
+    const [userData, setUserData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [page, setPage] = useState('landing');
+
+    useEffect(() => {
+        const authInit = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) { console.error("Authentication Error:", error); }
+        };
+        authInit();
+
+        const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+            setLoading(false);
+            if (currentUser && !currentUser.isAnonymous) {
+                setUser(currentUser);
+                setPage('dashboard');
+            } else {
+                setUser(null);
+                setUserData(null);
+                if (page === 'dashboard') setPage('landing');
+            }
+        });
+        return () => unsubscribeAuth();
+    }, [page]);
+
+    useEffect(() => {
+        let unsubscribeFirestore = null;
+        if (user) {
+            const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
+            unsubscribeFirestore = onSnapshot(userDocRef, (doc) => {
+                if (doc.exists()) setUserData(doc.data());
+            });
+        }
+        return () => { if (unsubscribeFirestore) unsubscribeFirestore(); };
+    }, [user]);
+
+    if (loading && page !== 'dashboard') {
+        return <div className="bg-gray-900 text-white min-h-screen flex items-center justify-center"><Loader text="جاري تحميل المنصة..." /></div>;
+    }
+
+    const renderPage = () => {
+        switch (page) {
+            case 'login': return <AuthPage setPage={setPage} isLogin />;
+            case 'signup': return <AuthPage setPage={setPage} />;
+            case 'dashboard': return <Dashboard user={user} userData={userData} setPage={setPage} />;
+            default: return <LandingPage setPage={setPage} />;
+        }
+    };
+
+    return <div className="bg-gray-900 text-white min-h-screen font-['Cairo']">{renderPage()}</div>;
+}
+
+// --- Page Components ---
+
+const LandingPage = ({ setPage }) => (
+    <div>
+        <nav className="bg-gray-900/50 backdrop-blur-lg sticky top-0 z-50 border-b border-gray-800">
+            <div className="container mx-auto px-6 py-4 flex items-center justify-between">
+                <a href="#" className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">إبداع AI</a>
+                <div>
+                    <button onClick={() => setPage('login')} className="text-gray-300 hover:text-white ml-4">تسجيل الدخول</button>
+                    <button onClick={() => setPage('signup')} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-5 rounded-lg transition">ابدأ مجاناً</button>
+                </div>
+            </div>
+        </nav>
+        <header className="py-20 md:py-32 text-center">
+            <div className="container mx-auto px-6">
+                <h1 className="text-4xl md:text-6xl font-extrabold text-white leading-tight">أطلق العنان لإبداعك مع <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">مساعدك الذكي</span></h1>
+                <p className="mt-6 text-lg md:text-xl text-gray-400 max-w-3xl mx-auto">منصة إبداع توفر لك مجموعة متكاملة من أدوات الذكاء الاصطناعي باللغة العربية لإنشاء محتوى احترافي، صور فريدة، والمزيد.</p>
+                <button onClick={() => setPage('signup')} className="mt-10 inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg py-4 px-10 rounded-lg transition transform hover:scale-105">جرّب الآن مجاناً</button>
+            </div>
+        </header>
+    </div>
+);
+
+const AuthPage = ({ setPage, isLogin }) => {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setError('');
+        try {
+            if (isLogin) {
+                await signInWithEmailAndPassword(auth, email, password);
+            } else {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const userDocRef = doc(db, 'artifacts', appId, 'users', userCredential.user.uid, 'profile', 'data');
+                await setDoc(userDocRef, {
+                    email: userCredential.user.email,
+                    createdAt: new Date(),
+                    subscription: 'free',
+                    credits: 20, // Starting credits for new users
+                });
+            }
+        } catch (err) {
+            setError(translateAuthError(err.code));
+            setLoading(false);
+        }
+    };
+    
+    const translateAuthError = (code) => {
+        switch (code) {
+            case 'auth/invalid-email': return 'البريد الإلكتروني غير صالح.';
+            case 'auth/user-not-found': return 'لا يوجد حساب بهذا البريد الإلكتروني.';
+            case 'auth/wrong-password': return 'كلمة المرور غير صحيحة.';
+            case 'auth/email-already-in-use': return 'هذا البريد الإلكتروني مستخدم بالفعل.';
+            case 'auth/weak-password': return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.';
+            default: return `حدث خطأ ما. الرجاء المحاولة مرة أخرى. (${code})`;
+        }
+    }
+
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-900">
+            <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md">
+                <h2 className="text-3xl font-bold text-center text-white mb-2">{isLogin ? 'تسجيل الدخول' : 'إنشاء حساب جديد'}</h2>
+                <form onSubmit={handleSubmit}>
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="البريد الإلكتروني" className="w-full p-3 mb-4 bg-gray-700 rounded-md border border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="كلمة المرور" className="w-full p-3 mb-6 bg-gray-700 rounded-md border border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                    {error && <p className="text-red-500 text-center mb-4">{error}</p>}
+                    <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-5 rounded-lg transition flex items-center justify-center">{loading ? <Icon name="spinner" /> : (isLogin ? 'دخول' : 'إنشاء حساب')}</button>
+                </form>
+                <p className="text-center text-gray-400 mt-6">{isLogin ? 'ليس لديك حساب؟' : 'لديك حساب بالفعل؟'}
+                    <button onClick={() => setPage(isLogin ? 'signup' : 'login')} className="text-blue-400 hover:underline font-semibold mr-2">{isLogin ? 'أنشئ حساباً' : 'سجّل الدخول'}</button>
+                </p>
+            </div>
+        </div>
+    );
+};
+
+const Dashboard = ({ user, userData, setPage }) => {
+    const [activeView, setActiveView] = useState('image');
+    
+    const handleLogout = async () => {
+        await signOut(auth);
+        setPage('landing');
+    };
+
+    const renderActiveView = () => {
+        switch (activeView) {
+            case 'text': return <TextGenerator />;
+            case 'video': return <VideoGenerator />;
+            case 'billing': return <SubscriptionPage user={user} />;
+            case 'image':
+            default:
+                return <ImageGenerator user={user} userData={userData} setActiveView={setActiveView}/>;
+        }
+    };
+    
+    const NavLink = ({ view, icon, label }) => (
+         <li className="mb-2">
+            <button onClick={() => setActiveView(view)} className={`w-full flex items-center p-3 rounded-lg transition ${activeView === view ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}>
+                <Icon name={icon} className={`ml-3 ${activeView === view ? 'text-blue-400' : ''}`} />
+                {label}
+            </button>
+        </li>
+    );
+
+    return (
+        <div className="min-h-screen flex flex-col md:flex-row">
+            <aside className="w-full md:w-64 bg-gray-800 p-4 flex flex-col">
+                <h2 className="text-2xl font-bold text-white mb-8 text-center bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">إبداع AI</h2>
+                <nav className="flex-grow">
+                    <ul>
+                        <NavLink view="image" icon="image" label="مولّد الصور" />
+                        <NavLink view="text" icon="text" label="مولّد النصوص" />
+                        <NavLink view="video" icon="video" label="مولّد الفيديو" />
+                        <NavLink view="billing" icon="billing" label="الباقات والاشتراك" />
+                    </ul>
+                </nav>
+                <div className="mt-auto">
+                    <div className="text-gray-400 mb-4 p-3 rounded-lg bg-gray-900/50 text-sm">
+                        <p className="truncate font-semibold text-white">{userData?.email}</p>
+                        <p>الرصيد: <span className="font-bold text-yellow-400">{userData?.credits ?? '...'}</span> صورة</p>
+                        <p className="capitalize">الباقة: <span className="font-bold text-green-400">{userData?.subscription ?? '...'}</span></p>
+                    </div>
+                    <button onClick={handleLogout} className="w-full flex items-center justify-center p-3 bg-red-600/20 text-red-400 hover:bg-red-600/40 rounded-lg transition"><Icon name="logout" className="ml-2" />تسجيل الخروج</button>
+                </div>
+            </aside>
+            <main className="flex-1 p-6 md:p-10 bg-gray-900 overflow-y-auto">{renderActiveView()}</main>
+        </div>
+    );
+};
+
+const NoCreditsModal = ({ setActiveView }) => (
+    <div className="text-center text-gray-300 bg-yellow-900/50 p-8 rounded-lg border-2 border-dashed border-yellow-600 animate-pulse">
+        <h3 className="text-2xl font-bold text-yellow-400 mb-4">عفوًا, لقد نفد رصيدك!</h3>
+        <p className="mb-6 text-lg">لقد استهلكت كل رصيدك من الصور. للحصول على المزيد، يرجى ترقية باقتك.</p>
+        <button onClick={() => setActiveView('billing')} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition transform hover:scale-105">عرض الباقات والترقية</button>
+    </div>
+);
+
+const ImageGenerator = ({ user, userData, setActiveView }) => {
+    const [prompt, setPrompt] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [imageResult, setImageResult] = useState(null);
+
+    const handleGenerate = async () => {
+        if (!prompt) { setError('الرجاء إدخال وصف للصورة.'); return; }
+        if (userData.credits <= 0) { setError('رصيدك لا يسمح. يرجى ترقية باقتك.'); return; }
+        
+        setLoading(true); setError(''); setImageResult(null);
+
+        try {
+            const apiKey = "";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
+            const payload = { instances: [{ prompt }], parameters: { "sampleCount": 1 } };
+            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (!response.ok) { const errData = await response.json(); throw new Error(errData.error?.message || `HTTP error! status: ${response.status}`); }
+            const result = await response.json();
+            if (result.predictions && result.predictions[0].bytesBase64Encoded) {
+                setImageResult(`data:image/png;base64,${result.predictions[0].bytesBase64Encoded}`);
+                const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
+                await updateDoc(userDocRef, { credits: userData.credits - 1 });
+            } else { throw new Error('لم يتم العثور على صورة في استجابة الـ API.'); }
+        } catch (err) { setError(`حدث خطأ: ${err.message}`); } finally { setLoading(false); }
+    };
+
+    const handleReset = () => {
+        setPrompt('');
+        setImageResult(null);
+        setError('');
+    };
+
+    if (userData && userData.credits <= 0) {
+        return <NoCreditsModal setActiveView={setActiveView} />;
+    }
+
+    return (
+        <div className="animate-fade-in">
+            <h1 className="text-4xl font-bold mb-2">مولّد الصور بالذكاء الاصطناعي</h1>
+            <p className="text-gray-400 mb-8">اكتب وصفًا دقيقًا للصورة التي تتخيلها، وشاهد الإبداع يتحقق.</p>
+            <div className="flex flex-col md:flex-row gap-4 mb-6">
+                <input type="text" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="مثال: قط يرتدي قبعة ساحر ويقرأ كتابًا في مكتبة قديمة" className="flex-grow bg-gray-800 p-4 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+                <button onClick={handleGenerate} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition flex items-center justify-center disabled:bg-blue-800 disabled:cursor-not-allowed">
+                    {loading ? <Icon name="spinner" /> : 'توليد الصورة'}
+                </button>
+                <button onClick={handleReset} disabled={loading} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition flex items-center justify-center" title="البدء من جديد">
+                    <Icon name="reset" />
+                </button>
+            </div>
+            {error && <p className="text-red-500 text-center mb-4 p-3 bg-red-500/10 rounded-md">{error}</p>}
+            <div className="mt-6 bg-gray-800/50 p-4 rounded-lg min-h-[512px] flex justify-center items-center transition-all duration-500">
+                {loading && <Loader text="جاري توليد الصورة..." />}
+                {!loading && imageResult && <img src={imageResult} alt={prompt} className="rounded-lg shadow-lg max-w-full max-h-[512px] animate-fade-in" />}
+                {!loading && !imageResult && <div className="text-center text-gray-500"><Icon name="image" className="mx-auto w-16 h-16 mb-4" /><p>ستظهر الصورة التي تم إنشاؤها هنا.</p></div>}
+            </div>
+        </div>
+    );
+};
+
+const TextGenerator = () => {
+    const [prompt, setPrompt] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [textResult, setTextResult] = useState('');
+
+    const handleGenerate = async () => {
+        if (!prompt) { setError('الرجاء إدخال طلب لتوليد النص.'); return; }
+        setLoading(true); setError(''); setTextResult('');
+        try {
+            const apiKey = "";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+            const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
+            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (!response.ok) { const errData = await response.json(); throw new Error(errData.error?.message || `HTTP error! status: ${response.status}`); }
+            const result = await response.json();
+            if (result.candidates && result.candidates[0].content.parts[0].text) {
+                setTextResult(result.candidates[0].content.parts[0].text);
+            } else { throw new Error('لم يتم العثور على نص في استجابة الـ API.'); }
+        } catch (err) { setError(`حدث خطأ: ${err.message}`); } finally { setLoading(false); }
+    };
+    
+    const handleReset = () => {
+        setPrompt('');
+        setTextResult('');
+        setError('');
+    };
+
+    return (
+        <div className="animate-fade-in">
+            <h1 className="text-4xl font-bold mb-2">مولّد النصوص بالذكاء الاصطناعي</h1>
+            <p className="text-gray-400 mb-8">اكتب مقالات، منشورات، رسائل، أو أي نص تريده.</p>
+            <div className="flex flex-col gap-4 mb-6">
+                <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="مثال: اكتب لي تغريدة على تويتر عن أهمية الذكاء الاصطناعي في التسويق الرقمي" rows="4" className="w-full bg-gray-800 p-4 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"></textarea>
+                <div className="flex gap-4">
+                    <button onClick={handleGenerate} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition flex items-center justify-center disabled:bg-blue-800 disabled:cursor-not-allowed">{loading ? <Icon name="spinner" /> : 'توليد النص'}</button>
+                    <button onClick={handleReset} disabled={loading} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition flex items-center justify-center" title="البدء من جديد"><Icon name="reset" /></button>
+                </div>
+            </div>
+            {error && <p className="text-red-500 text-center mb-4 p-3 bg-red-500/10 rounded-md">{error}</p>}
+            <div className="mt-6 bg-gray-800/50 p-6 rounded-lg min-h-[400px]">
+                {loading && <Loader text="جاري كتابة النص..." />}
+                {!loading && textResult && <pre className="whitespace-pre-wrap text-lg leading-relaxed animate-fade-in">{textResult}</pre>}
+                {!loading && !textResult && <div className="text-center text-gray-500"><Icon name="text" className="mx-auto w-16 h-16 mb-4" /><p>سيظهر النص الذي تم إنشاؤه هنا.</p></div>}
+            </div>
+        </div>
+    );
+};
+
+const VideoGenerator = () => (
+    <div className="animate-fade-in">
+        <h1 className="text-4xl font-bold mb-2">مولّد الفيديو بالذكاء الاصطناعي</h1>
+        <div className="mt-8 bg-gray-800 p-8 rounded-lg text-center border-2 border-dashed border-gray-700">
+            <h2 className="text-2xl font-bold mb-4 text-yellow-400">قريباً!</h2>
+            <p className="text-gray-300 text-lg">تقنية تحويل النص إلى فيديو لا تزال في مراحلها المتقدمة وتتطلب موارد هائلة لا يمكن تشغيلها مباشرة من المتصفح بهذه الطريقة. <br /> نحن نعمل على دمج أفضل الحلول المتاحة وسنعلن عنها فور جهوزيتها.</p>
+        </div>
+    </div>
+);
+
+const SubscriptionPage = ({ user }) => {
+    const [loading, setLoading] = useState(false);
+    const [message, setMessage] = useState('');
+
+    const handleSubscribe = async (plan, credits) => {
+        setLoading(true); setMessage('');
+        try {
+            const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
+            await updateDoc(userDocRef, { subscription: plan, credits: credits });
+            setMessage(`تمت الترقية إلى باقة "${plan}" بنجاح!`);
+        } catch (error) { setMessage(`حدث خطأ أثناء الترقية: ${error.message}`); } 
+        finally { setLoading(false); }
+    };
+    
+    const PricingCard = ({ title, price, features, plan, credits, recommended }) => (
+        <div className={`p-8 rounded-lg flex flex-col bg-gray-800 border transition-all duration-300 hover:border-blue-500 hover:shadow-2xl hover:shadow-blue-500/10 ${recommended ? 'border-blue-500' : 'border-gray-700'}`}>
+            {recommended && <span className="absolute top-0 right-0 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-bl-lg rounded-tr-lg">الأكثر شيوعاً</span>}
+            <h3 className={`text-2xl font-bold ${recommended ? 'text-blue-400' : 'text-white'}`}>{title}</h3>
+            <p className="mt-6 text-4xl font-bold text-white">{price}</p>
+            <ul className="mt-8 space-y-4 text-gray-300">
+                {features.map((feature, i) => <li key={i} className="flex items-center"><Icon name="check"/>{feature}</li>)}
+            </ul>
+            <button onClick={() => handleSubscribe(plan, credits)} disabled={loading} className={`mt-auto w-full text-center font-bold py-3 px-6 rounded-lg transition mt-8 transform hover:scale-105 ${recommended ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}>
+                {loading ? <Icon name="spinner"/> : `اختر الباقة`}
+            </button>
+        </div>
+    );
+
+    return (
+        <div className="animate-fade-in">
+            <h1 className="text-4xl font-bold mb-2">الباقات والاشتراك</h1>
+            <p className="text-gray-400 mb-12">اختر الباقة التي تناسب احتياجاتك للوصول إلى كامل إمكانيات المنصة.</p>
+            {message && <p className="text-center mb-4 p-3 rounded-md bg-green-500/20 text-green-400">{message}</p>}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
+                <PricingCard title="الباقة المجانية" price="0$/شهرياً" features={['20 صورة (رصيد أولي)', '5000 كلمة شهرياً', 'الوصول للنماذج الأساسية']} plan="free" credits={20} />
+                <PricingCard title="الباقة الاحترافية" price="19$/شهرياً" features={['1000 صورة شهرياً', 'كلمات غير محدودة', 'الوصول للنماذج المتقدمة', 'دعم فني أسرع']} plan="pro" credits={1000} recommended />
+                <PricingCard title="باقة الشركات" price="تواصل معنا" features={['كل مميزات الاحترافية', 'مقاعد متعددة للفريق', 'دعم فني مخصص']} plan="business" credits={5000} />
+            </div>
+            <p className="text-center text-gray-500 mt-8 text-sm">* عملية الدفع هي محاكاة لأغراض العرض التوضيحي في هذه البيئة.</p>
+        </div>
+    );
+};
+
